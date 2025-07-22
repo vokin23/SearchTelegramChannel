@@ -297,10 +297,9 @@ async def get_search_terms(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     else:
         # Сохраняем результаты поиска в контексте пользователя
         context.user_data['search_results'] = results
-        context.user_data['current_page'] = 0
 
-        # Отображаем первую страницу результатов
-        await show_channels_page(update, context)
+        # Отображаем каналы в виде кнопок (вместо пагинации)
+        await show_channels_buttons(update, context)
 
     return SEARCH_TERMS
 
@@ -395,6 +394,102 @@ async def show_channels_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         except Exception as e2:
             logger.error(f"Повторная ошибка при отправке сообщения о канале: {e2}")
 
+# Функция для отображения каналов в виде кнопок с пагинацией
+async def show_channels_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    results = context.user_data.get('search_results', [])
+
+    if not results:
+        await update.message.reply_text("Нет результатов для отображения.")
+        return
+
+    # Получаем текущую страницу или устанавливаем на 0, если это первый вызов
+    if 'buttons_page' not in context.user_data:
+        context.user_data['buttons_page'] = 0
+
+    page = context.user_data['buttons_page']
+    total_results = len(results)
+    channels_per_page = 10  # Ограничиваем до 10 каналов на странице
+
+    # Вычисляем начальный и конечный индекс для текущей страницы
+    start_idx = page * channels_per_page
+    end_idx = min(start_idx + channels_per_page, total_results)
+
+    # Получаем каналы для текущей страницы
+    current_page_channels = results[start_idx:end_idx]
+
+    # Формируем сообщение с найденными каналами
+    message_text = f"Найдено {total_results} каналов по вашему запросу. Страница {page + 1}/{(total_results + channels_per_page - 1) // channels_per_page}:"
+
+    # Создаем кнопки с названиями каналов
+    keyboard = []
+    for channel in current_page_channels:
+        # Получаем название канала, ограничиваем его длину
+        title = channel['title']
+        if len(title) > 35:  # Ограничиваем длину названия
+            title = title[:35] + "..."
+
+        # Создаем кнопку для канала
+        channel_button = InlineKeyboardButton(
+            f"📢 {title}",
+            url=channel['link']
+        )
+        keyboard.append([channel_button])
+
+    # Добавляем кнопки навигации
+    nav_buttons = []
+
+    # Кнопка "Предыдущая страница" (если не на первой странице)
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data="prev_page"))
+
+    # Добавляем индикатор страницы как кнопку без действия
+    nav_buttons.append(InlineKeyboardButton(f"{page + 1}/{(total_results + channels_per_page - 1) // channels_per_page}", callback_data="ignore"))
+
+    # Кнопка "Следняя страница" (если не на последней странице)
+    if end_idx < total_results:
+        nav_buttons.append(InlineKeyboardButton("Вперёд ➡️", callback_data="next_page"))
+
+    # Добавляем навигационные кнопки в клавиатуру
+    keyboard.append(nav_buttons)
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    try:
+        # Если это первое сообщение с результатами, отправляем новое
+        if 'results_message_id' not in context.user_data:
+            message = await update.message.reply_text(
+                message_text,
+                reply_markup=reply_markup
+            )
+            context.user_data['results_message_id'] = message.message_id
+            context.user_data['chat_id'] = update.effective_chat.id
+        else:
+            # Иначе редактируем существующее сообщение
+            await context.bot.edit_message_text(
+                message_text,
+                chat_id=context.user_data['chat_id'],
+                message_id=context.user_data['results_message_id'],
+                reply_markup=reply_markup
+            )
+    except Exception as e:
+        logger.error(f"Ошибка при отправке списка каналов: {e}")
+        # В случае ошибки пробуем отправить новое сообщение
+        try:
+            message = await update.message.reply_text(
+                message_text,
+                reply_markup=reply_markup
+            )
+            context.user_data['results_message_id'] = message.message_id
+            context.user_data['chat_id'] = update.effective_chat.id
+        except Exception as e2:
+            logger.error(f"Повторная ошибка при отправке списка каналов: {e2}")
+            # Если все попытки неудачные, отправляем текстовый список
+            channels_text = "\n\n".join([f"📢 [{channel['title']}]({channel['link']})" for channel in current_page_channels])
+            await update.message.reply_text(
+                f"{message_text}\n\n{channels_text}",
+                parse_mode='Markdown'
+            )
+
 # Обработчик callback-запросов для пагинации
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -404,13 +499,25 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "next_channel":
         # Переход к следующему каналу
         context.user_data['current_page'] += 1
+        await show_channel_details(update, context)
     elif query.data == "prev_channel":
         # Переход к предыдущему каналу
         context.user_data['current_page'] -= 1
-
-    # Отображаем нужную страницу
-    await show_channels_page(update, context)
-    return SEARCH_TERMS
+        await show_channel_details(update, context)
+    elif query.data == "next_page":
+        # Переход к следующей странице списка каналов
+        context.user_data['buttons_page'] += 1
+        await show_channels_buttons(update, context)
+    elif query.data == "prev_page":
+        # Переход к предыдущей странице списка каналов
+        context.user_data['buttons_page'] -= 1
+        await show_channels_buttons(update, context)
+    elif query.data == "ignore":
+        # Пустое действие для кнопки-индикатора страницы
+        pass
+    else:
+        # Обработка других callback-запросов
+        pass
 
 # Обработчик получения номера телефона
 async def get_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
