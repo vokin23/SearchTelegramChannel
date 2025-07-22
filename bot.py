@@ -234,13 +234,17 @@ async def search_channels(search_terms, phone_number):
 # Команда /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
-    await update.message.reply_html(
-        f"Привет, {user.mention_html()}!\n\n"
-        f"Я бот для поиска Telegram каналов по ключевым словам.\n"
-        f"Отправьте мне слова или фразы через запятую, и я найду для вас каналы, "
-        f"в названии или описании которых встречаются эти слова.\n\n"
-        f"Например: 'новости, спорт, технологии'"
+    welcome_message = (
+        "🎉 *Добро пожаловать!* 🎉\n\n"
+        f"Привет, {user.mention_html()}! 👋\n\n"
+        "🔍 *Я — бот для поиска Telegram каналов*\n"
+        "Отправьте мне ключевые слова через запятую, и я найду для вас интересные каналы!\n\n"
+        "📝 *Пример запроса:*\n"
+        "`новости, спорт, технологии`\n\n"
+        "💡 *Совет:* Используйте конкретные термины для лучших результатов"
     )
+
+    await update.message.reply_html(welcome_message)
     return SEARCH_TERMS
 
 # Обработчик получения поисковых терминов
@@ -250,19 +254,24 @@ async def get_search_terms(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     search_terms = [term.strip() for term in text.split(',') if term.strip()]
 
     if not search_terms:
-        await update.message.reply_text(
-            "Пожалуйста, отправьте мне хотя бы одно ключевое слово или фразу для поиска. "
-            "Разделяйте несколько запросов запятыми."
+        error_message = (
+            "❌ *Упс! Что-то пошло не так*\n\n"
+            "📝 Пожалуйста, отправьте мне хотя бы одно ключевое слово для поиска\n\n"
+            "💡 *Пример:* `новости, спорт, технологии`\n"
+            "🔄 Разделяйте несколько запросов запятыми"
         )
+        await update.message.reply_html(error_message)
         return SEARCH_TERMS
 
     # Сохраняем поисковые термины в контексте пользователя
     context.user_data['search_terms'] = search_terms
 
-    await update.message.reply_text(
-        f"Ищу каналы по следующим ключевым словам: {', '.join(search_terms)}.\n"
-        f"Это может занять некоторое время..."
+    search_message = (
+        "🔍 *Начинаю поиск каналов...*\n\n"
+        f"🎯 *Ключевые слова:* `{', '.join(search_terms)}`\n\n"
+        "⏳ Это может занять некоторое время, пожалуйста подождите..."
     )
+    await update.message.reply_html(search_message)
 
     # Используем номер телефона из .env файла
     phone_number = ADMIN_PHONE
@@ -275,25 +284,37 @@ async def get_search_terms(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 
     # Обработка результатов поиска
     if results == "auth_required":
-        await update.message.reply_text(
-            "Требуется аутентификация для администраторского аккаунта. Отправьте код подтверждения."
+        auth_message = (
+            "🔐 *Требуется аутентификация*\n\n"
+            "📱 Для работы с API Telegram необходимо подтвердить административный аккаунт\n"
+            "💬 Отправьте код подтверждения, который придет в SMS"
         )
+        await update.message.reply_html(auth_message)
         # Сохраняем номер телефона администратора в контексте пользователя
         context.user_data['phone_number'] = phone_number
         # Запрашиваем код аутентификации без asyncio.run()
         client, auth_status = await authenticate_telethon(phone_number)
         return VERIFICATION_CODE
     elif results == "error":
-        await update.message.reply_text(
-            "Произошла ошибка при поиске каналов. Пожалуйста, попробуйте еще раз позже."
+        error_message = (
+            "⚠️ *Произошла ошибка при поиске*\n\n"
+            "🔄 Пожалуйста, попробуйте еще раз позже\n"
+            "💡 Или попробуйте изменить поисковые запросы"
         )
+        await update.message.reply_html(error_message)
         return SEARCH_TERMS
 
     if not results:
-        await update.message.reply_text(
-            "К сожалению, не удалось найти каналы по вашему запросу. "
-            "Попробуйте использовать другие ключевые слова."
+        no_results_message = (
+            "😔 *Каналы не найдены*\n\n"
+            f"🔍 По запросу `{', '.join(search_terms)}` ничего не найдено\n\n"
+            "💡 *Попробуйте:*\n"
+            "• Использовать более общие термины\n"
+            "• Проверить правописание\n"
+            "• Попробовать синонимы\n\n"
+            "🔄 Введите новый поисковый запрос"
         )
+        await update.message.reply_html(no_results_message)
     else:
         # Сохраняем результаты поиска в контексте пользователя
         context.user_data['search_results'] = results
@@ -399,7 +420,12 @@ async def show_channels_buttons(update: Update, context: ContextTypes.DEFAULT_TY
     results = context.user_data.get('search_results', [])
 
     if not results:
-        await update.message.reply_text("Нет результатов для отображения.")
+        no_results_message = (
+            "❌ *Результаты не найдены*\n\n"
+            "😔 К сожалению, нет каналов для отображения\n"
+            "🔄 Попробуйте начать новый поиск с /start"
+        )
+        await update.message.reply_html(no_results_message)
         return
 
     # Получаем текущую страницу или устанавливаем на 0, если это первый вызов
@@ -408,7 +434,8 @@ async def show_channels_buttons(update: Update, context: ContextTypes.DEFAULT_TY
 
     page = context.user_data['buttons_page']
     total_results = len(results)
-    channels_per_page = 10  # Ограничиваем до 10 каналов на странице
+    channels_per_page = 8  # Уменьшим до 8 каналов на странице для лучшего отображения
+    total_pages = (total_results + channels_per_page - 1) // channels_per_page
 
     # Вычисляем начальный и конечный индекс для текущей страницы
     start_idx = page * channels_per_page
@@ -417,23 +444,31 @@ async def show_channels_buttons(update: Update, context: ContextTypes.DEFAULT_TY
     # Получаем каналы для текущей страницы
     current_page_channels = results[start_idx:end_idx]
 
-    # Формируем сообщение с найденными каналами
-    message_text = f"Найдено {total_results} каналов по вашему запросу. Страница {page + 1}/{(total_results + channels_per_page - 1) // channels_per_page}:"
+    # Формируем красивое сообщение с результатами
+    message_text = (
+        f"🎉 *Найдено {total_results} каналов!*\n\n"
+        f"📄 Страница {page + 1} из {total_pages}\n"
+        f"👆 Нажмите на канал, чтобы перейти к нему"
+    )
 
     # Создаем кнопки с названиями каналов
     keyboard = []
-    for channel in current_page_channels:
+    for i, channel in enumerate(current_page_channels, 1):
         # Получаем название канала, ограничиваем его длину
         title = channel['title']
-        if len(title) > 35:  # Ограничиваем длину названия
-            title = title[:35] + "..."
+        if len(title) > 32:  # Ограничиваем длину названия
+            title = title[:32] + "..."
 
-        # Создаем кнопку для канала
+        # Создаем кнопку для канала с номером
         channel_button = InlineKeyboardButton(
-            f"📢 {title}",
+            f"{start_idx + i}. 📢 {title}",
             url=channel['link']
         )
         keyboard.append([channel_button])
+
+    # Добавляем разделительную линию перед навигацией
+    if keyboard:
+        keyboard.append([InlineKeyboardButton("━━━━━━━━━━━━━━━━━━━━", callback_data="ignore")])
 
     # Добавляем кнопки навигации
     nav_buttons = []
@@ -442,22 +477,26 @@ async def show_channels_buttons(update: Update, context: ContextTypes.DEFAULT_TY
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data="prev_page"))
 
-    # Добавляем индикатор страницы как кнопку без действия
-    nav_buttons.append(InlineKeyboardButton(f"{page + 1}/{(total_results + channels_per_page - 1) // channels_per_page}", callback_data="ignore"))
+    # Добавляем красивый индикатор страницы
+    nav_buttons.append(InlineKeyboardButton(f"📄 {page + 1}/{total_pages}", callback_data="ignore"))
 
     # Кнопка "Следняя страница" (если не на последней странице)
     if end_idx < total_results:
         nav_buttons.append(InlineKeyboardButton("Вперёд ➡️", callback_data="next_page"))
 
     # Добавляем навигационные кнопки в клавиатуру
-    keyboard.append(nav_buttons)
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+
+    # Добавляем кнопку "Новый поиск"
+    keyboard.append([InlineKeyboardButton("🔍 Новый поиск", callback_data="new_search")])
 
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
         # Если это первое сообщение с результатами, отправляем новое
         if 'results_message_id' not in context.user_data:
-            message = await update.message.reply_text(
+            message = await update.message.reply_html(
                 message_text,
                 reply_markup=reply_markup
             )
@@ -469,13 +508,14 @@ async def show_channels_buttons(update: Update, context: ContextTypes.DEFAULT_TY
                 message_text,
                 chat_id=context.user_data['chat_id'],
                 message_id=context.user_data['results_message_id'],
-                reply_markup=reply_markup
+                reply_markup=reply_markup,
+                parse_mode='HTML'
             )
     except Exception as e:
         logger.error(f"Ошибка при отправке списка каналов: {e}")
         # В случае ошибки пробуем отправить новое сообщение
         try:
-            message = await update.message.reply_text(
+            message = await update.message.reply_html(
                 message_text,
                 reply_markup=reply_markup
             )
@@ -483,12 +523,11 @@ async def show_channels_buttons(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['chat_id'] = update.effective_chat.id
         except Exception as e2:
             logger.error(f"Повторная ошибка при отправке списка каналов: {e2}")
-            # Если все попытки неудачные, отправляем текстовый список
-            channels_text = "\n\n".join([f"📢 [{channel['title']}]({channel['link']})" for channel in current_page_channels])
-            await update.message.reply_text(
-                f"{message_text}\n\n{channels_text}",
-                parse_mode='Markdown'
-            )
+            # Если все попытки неудачные, отправляем простой текстовый список
+            simple_message = f"🎉 Найдено {total_results} каналов!\n\n"
+            for i, channel in enumerate(current_page_channels, start_idx + 1):
+                simple_message += f"{i}. 📢 {channel['title']}\n🔗 {channel['link']}\n\n"
+            await update.message.reply_text(simple_message)
 
 # Обработчик callback-запросов для пагинации
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -515,6 +554,22 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == "ignore":
         # Пустое действие для кнопки-индикатора страницы
         pass
+    elif query.data == "new_search":
+        # Начать новый поиск
+        # Очищаем предыдущие результаты
+        context.user_data.clear()
+        new_search_message = (
+            "🔍 *Новый поиск*\n\n"
+            "📝 Введите ключевые слова через запятую для поиска каналов\n\n"
+            "💡 *Примеры:*\n"
+            "• `новости, политика`\n"
+            "• `спорт, футбол`\n"
+            "• `технологии, программирование`"
+        )
+        await query.edit_message_text(
+            new_search_message,
+            parse_mode='HTML'
+        )
     else:
         # Обработка других callback-запросов
         pass
