@@ -499,11 +499,11 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if query.data == "next_channel":
         # Переход к следующему каналу
         context.user_data['current_page'] += 1
-        await show_channel_details(update, context)
+        await show_channels_page(update, context)
     elif query.data == "prev_channel":
         # Переход к предыдущему каналу
         context.user_data['current_page'] -= 1
-        await show_channel_details(update, context)
+        await show_channels_page(update, context)
     elif query.data == "next_page":
         # Переход к следующей странице списка каналов
         context.user_data['buttons_page'] += 1
