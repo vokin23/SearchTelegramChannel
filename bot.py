@@ -328,31 +328,32 @@ async def show_channels_buttons(update, context):
             # Это новое сообщение от команды /start или поиска
             message = await update.message.reply_html(message_text, reply_markup=reply_markup)
             context.user_data['results_message_id'] = message.message_id
-            context.user_data['chat_id'] = update.effective_chat.id
+            context.user_data['chat_id'] = update.message.chat_id
         else:
             # Это callback query, редактируем существующее сообщение
             await update.edit_message_text(
-                message_text,
-                reply_markup=reply_markup,
-                parse_mode='HTML'
-            )
-
-    except Exception as e:
-        logger.error(f"Ошибка при отображении каналов: {e}")
-        # Fallback: отправляем новое сообщение
-        try:
-            if hasattr(update, 'callback_query'):
-                chat_id = update.callback_query.message.chat_id
-            else:
-                chat_id = update.effective_chat.id
-
-            message = await context.bot.send_message(
-                chat_id=chat_id,
                 text=message_text,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
-            context.user_data['results_message_id'] = message.message_id
+    except Exception as e:
+        logger.error(f"Ошибка при отображении каналов: {e}")
+        # Fallback: отправляем новое сообщение
+        try:
+            chat_id = None
+            if hasattr(update, 'callback_query'):
+                chat_id = update.callback_query.message.chat_id
+            elif hasattr(update, 'message'):
+                chat_id = update.message.chat_id
+
+            if chat_id:
+                message = await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=message_text,
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
+                context.user_data['results_message_id'] = message.message_id
         except Exception as e2:
             logger.error(f"Критическая ошибка при отправке сообщения: {e2}")
 
