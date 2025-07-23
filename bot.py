@@ -19,6 +19,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Отключаем избыточное логирование HTTP-запросов
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("telegram").setLevel(logging.WARNING)
+logging.getLogger("urllib3").setLevel(logging.WARNING)
+
 # Состояния для ConversationHandler
 SEARCH_TERMS = 0
 PHONE_NUMBER = 1
