@@ -88,17 +88,61 @@ async def search_channels(search_terms, phone_number):
         return "auth_required"
 
     try:
-        # Поиск через глобальный поиск Telegram
+        # Расширенный поиск с дополнительными вариантами запросов
+        expanded_terms = []
         for term in search_terms:
+            # Добавляем оригинальный термин
+            expanded_terms.append(term)
+
+            # Добавляем термин на английском и русском
+            if term.lower() == 'video' or term.lower() == 'видео':
+                expanded_terms.append('video')
+                expanded_terms.append('видео')
+
+            # Добавляем варианты с разными регистрами
+            expanded_terms.append(term.lower())
+            expanded_terms.append(term.upper())
+            expanded_terms.append(term.capitalize())
+
+        # Удаляем дубликаты
+        expanded_terms = list(set(expanded_terms))
+        logger.info(f"Расширенные поисковые термины: {expanded_terms}")
+
+        # Поиск через глобальный поиск Telegram с увеличенным лимитом
+        for term in expanded_terms:
             logger.info(f"Выполняю поиск по запросу: {term}")
             try:
+                # Увеличиваем лимит до максимально возможного
                 search_result = await client(SearchRequest(
                     q=term,
-                    limit=50
+                    limit=100  # Максимально возможное значение для API
                 ))
 
                 for chat in search_result.chats:
                     if hasattr(chat, 'username') and chat.username and hasattr(chat, 'broadcast') and chat.broadcast:
+                        # Проверяем соответствие запросу в разных вариантах написания
+                        title_lower = chat.title.lower()
+                        username_lower = chat.username.lower()
+                        about_lower = getattr(chat, 'about', '').lower()
+
+                        # Проверяем совпадение с любым из исходных терминов
+                        match_found = False
+                        for original_term in search_terms:
+                            original_term_lower = original_term.lower()
+                            if (original_term_lower in title_lower or
+                                original_term_lower in username_lower or
+                                original_term_lower in about_lower):
+                                match_found = True
+                                break
+
+                        # Если совпадение не найдено, но термин очень короткий (менее 3 символов),
+                        # проверяем более точное совпадение
+                        if not match_found and min(len(t) for t in search_terms) < 3:
+                            for original_term in search_terms:
+                                if original_term.lower() == title_lower or original_term.lower() == username_lower:
+                                    match_found = True
+                                    break
+
                         channel_info = {
                             'title': chat.title,
                             'username': chat.username,
@@ -109,7 +153,11 @@ async def search_channels(search_terms, phone_number):
 
                         # Проверяем, нет ли уже такого канала в результатах
                         if not any(r['username'] == channel_info['username'] for r in results):
-                            results.append(channel_info)
+                            # Если термин найден в названии, добавляем в начало списка
+                            if match_found:
+                                results.insert(0, channel_info)
+                            else:
+                                results.append(channel_info)
 
                         if len(results) >= MAX_RESULTS:
                             break
@@ -120,16 +168,23 @@ async def search_channels(search_terms, phone_number):
             if len(results) >= MAX_RESULTS:
                 break
 
-        # Дополнительный поиск в диалогах пользователя
-        if len(results) < MAX_RESULTS:
-            async for dialog in client.iter_dialogs():
+        # Дополнительный поиск среди популярных каналов
+        try:
+            popular_chats = await client.get_dialogs(limit=200)
+            for dialog in popular_chats:
                 entity = dialog.entity
                 if hasattr(entity, 'broadcast') and entity.broadcast and hasattr(entity, 'username') and entity.username:
                     # Проверяем релевантность
                     relevant = False
+                    title_lower = entity.title.lower()
+                    username_lower = entity.username.lower()
+                    about_lower = getattr(entity, 'about', '').lower() if hasattr(entity, 'about') else ''
+
                     for term in search_terms:
-                        if (term.lower() in entity.title.lower() or
-                            (hasattr(entity, 'about') and entity.about and term.lower() in entity.about.lower())):
+                        term_lower = term.lower()
+                        if (term_lower in title_lower or
+                            term_lower in username_lower or
+                            (about_lower and term_lower in about_lower)):
                             relevant = True
                             break
 
@@ -147,6 +202,36 @@ async def search_channels(search_terms, phone_number):
 
                         if len(results) >= MAX_RESULTS:
                             break
+        except Exception as e:
+            logger.error(f"Ошибка при поиске в диалогах: {e}")
+
+        # Прямой поиск по слову (для коротких терминов)
+        if len(results) < 10 and any(len(term) <= 5 for term in search_terms):
+            for term in search_terms:
+                if len(term) <= 5:
+                    try:
+                        # Используем более прямой поиск для коротких терминов
+                        async for dialog in client.iter_dialogs():
+                            if len(results) >= MAX_RESULTS:
+                                break
+
+                            entity = dialog.entity
+                            if hasattr(entity, 'broadcast') and entity.broadcast and hasattr(entity, 'username') and entity.username:
+                                if (term.lower() in entity.title.lower() or
+                                    (hasattr(entity, 'about') and entity.about and term.lower() in entity.about.lower())):
+
+                                    channel_info = {
+                                        'title': entity.title,
+                                        'username': entity.username,
+                                        'link': f'https://t.me/{entity.username}',
+                                        'description': getattr(entity, 'about', 'Нет описания'),
+                                        'participants_count': getattr(entity, 'participants_count', 0)
+                                    }
+
+                                    if not any(r['username'] == channel_info['username'] for r in results):
+                                        results.append(channel_info)
+                    except Exception as e:
+                        logger.error(f"Ошибка при прямом поиске по термину {term}: {e}")
 
         logger.info(f"Поиск завершен. Найдено каналов: {len(results)}")
     except Exception as e:
