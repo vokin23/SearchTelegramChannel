@@ -342,33 +342,52 @@ async def handle_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "prev_page":
-        context.user_data['buttons_page'] = max(0, context.user_data.get('buttons_page', 0) - 1)
-        await show_channels_buttons(query, context)
+    try:
+        if query.data == "prev_page":
+            context.user_data['buttons_page'] = max(0, context.user_data.get('buttons_page', 0) - 1)
+            await show_channels_buttons(query, context)
 
-    elif query.data == "next_page":
-        results = context.user_data.get('search_results', [])
-        channels_per_page = 6
-        max_page = (len(results) - 1) // channels_per_page
-        context.user_data['buttons_page'] = min(max_page, context.user_data.get('buttons_page', 0) + 1)
-        await show_channels_buttons(query, context)
+        elif query.data == "next_page":
+            results = context.user_data.get('search_results', [])
+            channels_per_page = 6
+            max_page = (len(results) - 1) // channels_per_page if results else 0
+            context.user_data['buttons_page'] = min(max_page, context.user_data.get('buttons_page', 0) + 1)
+            await show_channels_buttons(query, context)
 
-    elif query.data == "new_search":
-        context.user_data.clear()
-        welcome_msg = (
-            "🔍 *Новый поиск*\n\n"
-            "Введите новые ключевые слова для поиска каналов:"
-        )
-        await query.edit_message_text(welcome_msg, parse_mode='HTML')
+        elif query.data == "new_search":
+            context.user_data.clear()
+            welcome_msg = (
+                "🔍 *Новый поиск*\n\n"
+                "Введите новые ключевые слова для поиска каналов:"
+            )
+            await query.edit_message_text(welcome_msg, parse_mode='HTML')
 
-    elif query.data == "detailed_view":
-        await show_detailed_results(query, context)
+        elif query.data == "detailed_view":
+            await show_detailed_results(query, context)
 
-    elif query.data == "back_to_list":
-        await show_channels_buttons(query, context)
+        elif query.data == "back_to_list":
+            # Проверяем наличие результатов
+            if context.user_data.get('search_results'):
+                logger.info("Возвращаемся к списку каналов")
+                await show_channels_buttons(query, context)
+            else:
+                logger.warning("Попытка вернуться к списку без сохраненных результатов")
+                await query.edit_message_text(
+                    "❌ Нет сохраненных результатов поиска.\n\nВведите новый поисковый запрос:",
+                    parse_mode='HTML'
+                )
 
-    elif query.data == "ignore":
-        pass
+        elif query.data == "ignore":
+            pass
+
+    except Exception as e:
+        logger.error(f"Ошибка в обработчике callback: {e}")
+        try:
+            await query.edit_message_text(
+                "❌ Произошла ошибка. Попробуйте снова или начните новый поиск с /start"
+            )
+        except:
+            pass
 
 # Показать подробные результаты
 async def show_detailed_results(query, context):
