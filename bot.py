@@ -393,14 +393,14 @@ async def handle_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         if query.data == "prev_page":
             context.user_data['buttons_page'] = max(0, context.user_data.get('buttons_page', 0) - 1)
-            await show_channels_buttons(query, context)
+            await show_channels_buttons(update, context)  # Передаем весь update, а не только query
 
         elif query.data == "next_page":
             results = context.user_data.get('search_results', [])
             channels_per_page = 6
             max_page = (len(results) - 1) // channels_per_page if results else 0
             context.user_data['buttons_page'] = min(max_page, context.user_data.get('buttons_page', 0) + 1)
-            await show_channels_buttons(query, context)
+            await show_channels_buttons(update, context)  # Передаем весь update, а не только query
 
         elif query.data == "new_search":
             context.user_data.clear()
@@ -411,13 +411,13 @@ async def handle_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(welcome_msg, parse_mode='HTML')
 
         elif query.data == "detailed_view":
-            await show_detailed_results(query, context)
+            await show_detailed_results(update, context)  # Передаем весь update, а не только query
 
         elif query.data == "back_to_list":
             # Проверяем наличие результатов
             if context.user_data.get('search_results'):
                 logger.info("Возвращаемся к списку каналов")
-                await show_channels_buttons(query, context)
+                await show_channels_buttons(update, context)  # Передаем весь update, а не только query
             else:
                 logger.warning("Попытка вернуться к списку без сохраненных результатов")
                 await query.edit_message_text(
@@ -438,7 +438,10 @@ async def handle_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 # Показать подробные результаты
-async def show_detailed_results(query, context):
+async def show_detailed_results(update, context):
+    # Получаем query из update
+    query = update.callback_query if hasattr(update, 'callback_query') else update
+
     results = context.user_data.get('search_results', [])
     page = context.user_data.get('buttons_page', 0)
     channels_per_page = 6
@@ -486,23 +489,39 @@ async def show_detailed_results(query, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
-        await query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode='HTML')
+        if hasattr(query, 'edit_message_text'):
+            await query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode='HTML')
+        else:
+            # Если у нас есть только callback_query в обновлении
+            await query.callback_query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode='HTML')
     except Exception as e:
         logger.error(f"Ошибка при показе подробностей: {e}")
         # Fallback без форматирования HTML
         try:
             clean_text = message_text.replace('*', '').replace('_', '').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-            await query.edit_message_text(clean_text, reply_markup=reply_markup)
+            if hasattr(query, 'edit_message_text'):
+                await query.edit_message_text(clean_text, reply_markup=reply_markup)
+            else:
+                await query.callback_query.edit_message_text(clean_text, reply_markup=reply_markup)
         except Exception as e2:
             logger.error(f"Критическая ошибка при показе подробностей: {e2}")
             # Последний fallback - отправляем новое сообщение
             try:
                 clean_text = message_text.replace('*', '').replace('_', '').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
-                await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text=clean_text,
-                    reply_markup=reply_markup
-                )
+                chat_id = None
+                if hasattr(query, 'message'):
+                    chat_id = query.message.chat_id
+                elif hasattr(query, 'callback_query') and hasattr(query.callback_query, 'message'):
+                    chat_id = query.callback_query.message.chat_id
+                elif context.user_data.get('chat_id'):
+                    chat_id = context.user_data.get('chat_id')
+
+                if chat_id:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=clean_text,
+                        reply_markup=reply_markup
+                    )
             except Exception as e3:
                 logger.error(f"Не удалось отправить подробную информацию: {e3}")
 
