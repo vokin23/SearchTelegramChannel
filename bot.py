@@ -256,7 +256,7 @@ async def show_channels_buttons(update, context):
         if hasattr(update, 'message') and update.message:
             await update.message.reply_html(error_message)
         else:
-            await update.edit_message_text(error_message, parse_mode='HTML')
+            await update.callback_query.edit_message_text(error_message, parse_mode='HTML')
         return
 
     if 'buttons_page' not in context.user_data:
@@ -329,22 +329,49 @@ async def show_channels_buttons(update, context):
             message = await update.message.reply_html(message_text, reply_markup=reply_markup)
             context.user_data['results_message_id'] = message.message_id
             context.user_data['chat_id'] = update.message.chat_id
-        else:
+        elif hasattr(update, 'callback_query'):
             # Это callback query, редактируем существующее сообщение
-            await update.edit_message_text(
+            await update.callback_query.edit_message_text(
                 text=message_text,
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
+        else:
+            # Прямое обновление сообщения по ID, если доступен
+            chat_id = context.user_data.get('chat_id')
+            message_id = context.user_data.get('results_message_id')
+            if chat_id and message_id:
+                await context.bot.edit_message_text(
+                    text=message_text,
+                    chat_id=chat_id,
+                    message_id=message_id,
+                    reply_markup=reply_markup,
+                    parse_mode='HTML'
+                )
+            else:
+                # Если нет информации о сообщении, создаем новое
+                logger.warning("Нет данных о предыдущем сообщении, отправляем новое")
+                if hasattr(update, 'effective_chat'):
+                    chat_id = update.effective_chat.id
+                    message = await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=message_text,
+                        reply_markup=reply_markup,
+                        parse_mode='HTML'
+                    )
+                    context.user_data['results_message_id'] = message.message_id
+                    context.user_data['chat_id'] = chat_id
     except Exception as e:
         logger.error(f"Ошибка при отображении каналов: {e}")
-        # Fallback: отправляем новое сообщение
+        # Fallback: пытаемся получить chat_id из разных источников
         try:
             chat_id = None
-            if hasattr(update, 'callback_query'):
+            if hasattr(update, 'callback_query') and hasattr(update.callback_query, 'message'):
                 chat_id = update.callback_query.message.chat_id
             elif hasattr(update, 'message'):
                 chat_id = update.message.chat_id
+            elif context.user_data.get('chat_id'):
+                chat_id = context.user_data.get('chat_id')
 
             if chat_id:
                 message = await context.bot.send_message(
@@ -354,6 +381,7 @@ async def show_channels_buttons(update, context):
                     parse_mode='HTML'
                 )
                 context.user_data['results_message_id'] = message.message_id
+                context.user_data['chat_id'] = chat_id
         except Exception as e2:
             logger.error(f"Критическая ошибка при отправке сообщения: {e2}")
 
