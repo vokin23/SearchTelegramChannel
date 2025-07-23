@@ -45,6 +45,11 @@ async def get_telethon_client(phone_number):
     global CLIENT
     if CLIENT is None or not CLIENT.is_connected():
         CLIENT = TelegramClient('session_' + phone_number, API_ID, API_HASH)
+        # Увеличиваем таймауты для более стабильной работы
+        CLIENT.flood_sleep_threshold = 60  # Повышаем порог до 60 секунд
+        # Добавляем параметры соединения для повышения стабильности
+        connection_retries = 10
+        retry_delay = 1
         await CLIENT.connect()
     return CLIENT
 
