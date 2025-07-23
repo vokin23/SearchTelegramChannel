@@ -355,10 +355,12 @@ async def handle_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Введите новые ключевые слова для поиска каналов:"
         )
         await query.edit_message_text(welcome_msg, parse_mode='HTML')
-        return SEARCH_TERMS
 
     elif query.data == "detailed_view":
         await show_detailed_results(query, context)
+
+    elif query.data == "back_to_list":
+        await show_channels_buttons(query, context)
 
     elif query.data == "ignore":
         pass
@@ -373,18 +375,28 @@ async def show_detailed_results(query, context):
     end_idx = min(start_idx + channels_per_page, len(results))
     current_channels = results[start_idx:end_idx]
 
-    message_text = f"📊 *Подробная информация (страница {page + 1}):*\n\n"
+    message_text = f"📊 *Подробная информации (страница {page + 1}):*\n\n"
 
     for i, channel in enumerate(current_channels, 1):
-        message_text += f"**{start_idx + i}. {channel['title']}**\n"
+        message_text += f"*{start_idx + i}. {channel['title']}*\n"
         message_text += f"👥 Подписчиков: {channel.get('participants_count', 'Неизвестно')}\n"
-        message_text += f"📝 Описание: {channel['description'][:100]}{'...' if len(channel['description']) > 100 else ''}\n"
+
+        # Безопасно обрабатываем описание
+        desc = channel.get('description', 'Нет описания')
+        if desc and len(desc) > 100:
+            desc = desc[:100] + "..."
+        message_text += f"📝 Описание: {desc}\n"
         message_text += f"🔗 Ссылка: {channel['link']}\n\n"
 
     keyboard = [[InlineKeyboardButton("🔙 Назад к списку", callback_data="back_to_list")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode='HTML')
+    try:
+        await query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode='HTML')
+    except Exception as e:
+        logger.error(f"Ошибка при показе подробностей: {e}")
+        # Fallback без форматирования
+        await query.edit_message_text(message_text.replace('*', '').replace('_', ''), reply_markup=reply_markup)
 
 # Обработчик кода верификации
 async def get_verification_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
