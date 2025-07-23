@@ -252,7 +252,11 @@ async def show_channels_buttons(update, context):
     results = context.user_data.get('search_results', [])
 
     if not results:
-        await update.message.reply_html("❌ Нет результатов для отображения")
+        error_message = "❌ Нет результатов для отображения"
+        if hasattr(update, 'message') and update.message:
+            await update.message.reply_html(error_message)
+        else:
+            await update.edit_message_text(error_message, parse_mode='HTML')
         return
 
     if 'buttons_page' not in context.user_data:
@@ -319,23 +323,38 @@ async def show_channels_buttons(update, context):
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     try:
+        # Определяем, это новое сообщение или редактирование существующего
         if hasattr(update, 'message') and update.message:
+            # Это новое сообщение от команды /start или поиска
             message = await update.message.reply_html(message_text, reply_markup=reply_markup)
+            context.user_data['results_message_id'] = message.message_id
+            context.user_data['chat_id'] = update.effective_chat.id
         else:
-            message = await context.bot.edit_message_text(
+            # Это callback query, редактируем существующее сообщение
+            await update.edit_message_text(
                 message_text,
-                chat_id=update.effective_chat.id,
-                message_id=context.user_data.get('results_message_id'),
                 reply_markup=reply_markup,
                 parse_mode='HTML'
             )
 
-        if hasattr(update, 'message') and update.message:
-            context.user_data['results_message_id'] = message.message_id
-            context.user_data['chat_id'] = update.effective_chat.id
-
     except Exception as e:
         logger.error(f"Ошибка при отображении каналов: {e}")
+        # Fallback: отправляем новое сообщение
+        try:
+            if hasattr(update, 'callback_query'):
+                chat_id = update.callback_query.message.chat_id
+            else:
+                chat_id = update.effective_chat.id
+
+            message = await context.bot.send_message(
+                chat_id=chat_id,
+                text=message_text,
+                reply_markup=reply_markup,
+                parse_mode='HTML'
+            )
+            context.user_data['results_message_id'] = message.message_id
+        except Exception as e2:
+            logger.error(f"Критическая ошибка при отправке сообщения: {e2}")
 
 # Обработчик callback'ов для пагинации
 async def handle_pagination(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -399,18 +418,40 @@ async def show_detailed_results(query, context):
     end_idx = min(start_idx + channels_per_page, len(results))
     current_channels = results[start_idx:end_idx]
 
-    message_text = f"📊 *Подробная информации (страница {page + 1}):*\n\n"
+    message_text = f"📊 *Подробная информация (страница {page + 1}):*\n\n"
 
     for i, channel in enumerate(current_channels, 1):
         message_text += f"*{start_idx + i}. {channel['title']}*\n"
-        message_text += f"👥 Подписчиков: {channel.get('participants_count', 'Неизвестно')}\n"
+
+        # Информация о подписчиках
+        participants = channel.get('participants_count', 0)
+        if participants > 0:
+            if participants >= 1000000:
+                participants_str = f"{participants // 1000000}.{(participants % 1000000) // 100000}M"
+            elif participants >= 1000:
+                participants_str = f"{participants // 1000}.{(participants % 1000) // 100}K"
+            else:
+                participants_str = str(participants)
+            message_text += f"👥 Подписчиков: {participants_str}\n"
+        else:
+            message_text += f"👥 Подписчиков: Неизвестно\n"
 
         # Безопасно обрабатываем описание
         desc = channel.get('description', 'Нет описания')
-        if desc and len(desc) > 100:
-            desc = desc[:100] + "..."
-        message_text += f"📝 Описание: {desc}\n"
+        if desc and desc != 'Нет описания':
+            if len(desc) > 150:
+                desc = desc[:150] + "..."
+            # Экранируем специальные символы для HTML
+            desc = desc.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            message_text += f"📝 Описание: {desc}\n"
+        else:
+            message_text += f"📝 Описание: Нет описания\n"
+
         message_text += f"🔗 Ссылка: {channel['link']}\n\n"
+
+    # Добавляем информацию о навигации
+    total_pages = (len(results) + channels_per_page - 1) // channels_per_page
+    message_text += f"📄 Показана страница {page + 1} из {total_pages}"
 
     keyboard = [[InlineKeyboardButton("🔙 Назад к списку", callback_data="back_to_list")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -419,8 +460,22 @@ async def show_detailed_results(query, context):
         await query.edit_message_text(message_text, reply_markup=reply_markup, parse_mode='HTML')
     except Exception as e:
         logger.error(f"Ошибка при показе подробностей: {e}")
-        # Fallback без форматирования
-        await query.edit_message_text(message_text.replace('*', '').replace('_', ''), reply_markup=reply_markup)
+        # Fallback без форматирования HTML
+        try:
+            clean_text = message_text.replace('*', '').replace('_', '').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+            await query.edit_message_text(clean_text, reply_markup=reply_markup)
+        except Exception as e2:
+            logger.error(f"Критическая ошибка при показе подробностей: {e2}")
+            # Последний fallback - отправляем новое сообщение
+            try:
+                clean_text = message_text.replace('*', '').replace('_', '').replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>')
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text=clean_text,
+                    reply_markup=reply_markup
+                )
+            except Exception as e3:
+                logger.error(f"Не удалось отправить подробную информацию: {e3}")
 
 # Обработчик кода верификации
 async def get_verification_code(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
