@@ -6,6 +6,40 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from telethon.sync import TelegramClient
 from telethon.tl.functions.contacts import SearchRequest
 
+# Добавляем словарь синонимов и переводов
+SYNONYMS = {
+    'видео': ['video', 'videos', 'видеоролик', 'видеозапись', 'ролик', 'фильм', 'movie'],
+    'video': ['видео', 'videos', 'видеоролик', 'видеозапись', 'ролик', 'фильм', 'movie'],
+    'новости': ['news', 'новость', 'события', 'сводка', 'вести', 'информация', 'updates'],
+    'news': ['новости', 'новость', 'события', 'сводка', 'вести', 'информация', 'updates'],
+    'спорт': ['sport', 'sports', 'физкультура', 'атлетика', 'соревнования', 'тренировки', 'физическая активность'],
+    'sport': ['спорт', 'sports', 'физкультура', 'атлетика', 'соревнования', 'тренировки', 'физическая активность'],
+    'музыка': ['music', 'трек', 'песня', 'композиция', 'мелодия', 'song', 'audio'],
+    'music': ['музыка', 'трек', 'песня', 'композиция', 'мелодия', 'song', 'audio'],
+    'игры': ['games', 'game', 'игра', 'геймплей', 'развлечение', 'gaming', 'киберспорт'],
+    'game': ['игры', 'games', 'игра', 'геймплей', 'развлечение', 'gaming', 'киберспорт'],
+    'технологии': ['tech', 'technology', 'техника', 'инновации', 'гаджеты', 'девайсы', 'электроника'],
+    'tech': ['технологии', 'technology', 'техника', 'инновации', 'гаджеты', 'девайсы', 'электроника'],
+    'бизнес': ['business', 'компания', 'предпринимательство', 'дело', 'работа', 'стартап', 'финансы'],
+    'business': ['бизнес', 'компания', 'предпринимательство', 'дело', 'работа', 'стартап', 'финансы'],
+    'красота': ['beauty', 'стиль', 'мода', 'косметика', 'макияж', 'уход', 'fashion'],
+    'beauty': ['красота', 'стиль', 'мода', 'косметика', 'макияж', 'уход', 'fashion'],
+    'еда': ['food', 'кулинария', 'рецепты', 'питание', 'кухня', 'cooking', 'блюда'],
+    'food': ['еда', 'кулинария', 'рецепты', 'питание', 'кухня', 'cooking', 'блюда'],
+}
+
+# Функция для получения синонимов и связанных слов
+def get_synonyms(word):
+    """Возвращает список синонимов и связанных слов для данного слова"""
+    word = word.lower()
+    if word in SYNONYMS:
+        return SYNONYMS[word]
+    # Проверяем частичные совпадения для составных слов
+    for key, values in SYNONYMS.items():
+        if key in word or word in key:
+            return values
+    return []
+
 # Обрабатываем возможные конфликты циклов событий между Telethon и python-telegram-bot
 import nest_asyncio
 nest_asyncio.apply()
@@ -108,6 +142,14 @@ async def search_channels(search_terms, phone_number):
             expanded_terms.append(term.lower())
             expanded_terms.append(term.upper())
             expanded_terms.append(term.capitalize())
+
+            # Добавляем синонимы
+            synonyms = get_synonyms(term)
+            for synonym in synonyms:
+                expanded_terms.append(synonym)
+                expanded_terms.append(synonym.lower())
+                expanded_terms.append(synonym.upper())
+                expanded_terms.append(synonym.capitalize())
 
         # Удаляем дубликаты
         expanded_terms = list(set(expanded_terms))
